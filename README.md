@@ -1,6 +1,6 @@
 # Saccadeless
 
-A single-file RSVP (Rapid Serial Visual Presentation) speed reader. No dependencies, no build step — just one HTML file.
+A single-file RSVP (Rapid Serial Visual Presentation) speed reader. No dependencies, no build step — just one HTML file. Try online here - https://dobrosketchkun.github.io/saccadeless/
 
 ![Saccadeless screenshot](screenshots/reader.png)
 

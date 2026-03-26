@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saccadeless — RSVP Speed Reader</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0a0b;
+    --bg-surface: #141416;
+    --bg-elevated: #1c1c1f;
+    --text: #e8e6e3;
+    --text-dim: #6b6a68;
+    --text-muted: #3d3d3f;
+    --accent: #e63946;
+    --accent-glow: rgba(230, 57, 70, 0.15);
+    --accent-dim: rgba(230, 57, 70, 0.4);
+    --border: #2a2a2d;
+    --border-light: #222224;
+    --font-display: 'Outfit', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    --word-size: 3.4rem;
+    --transition: 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* ─── THEMES ─── */
+  [data-theme="light"] {
+    --bg: #f5f2ed; --bg-surface: #eae6df; --bg-elevated: #ddd9d2;
+    --text: #1a1918; --text-dim: #8a8784; --text-muted: #b8b5b1;
+    --border: #d0ccc6; --border-light: #ddd9d3;
+  }
+  [data-theme="sepia"] {
+    --bg: #f4ecd8; --bg-surface: #ebe3cd; --bg-elevated: #ddd5bf;
+    --text: #3e2c1c; --text-dim: #8b7355; --text-muted: #bfad90;
+    --border: #d4c9ad; --border-light: #e0d6bd;
+  }
+  [data-theme="midnight"] {
+    --bg: #0b0e1a; --bg-surface: #111628; --bg-elevated: #1a2038;
+    --text: #d4d8e8; --text-dim: #6672a0; --text-muted: #364070;
+    --border: #252d50; --border-light: #1e2544;
+  }
+  [data-theme="nord"] {
+    --bg: #2e3440; --bg-surface: #3b4252; --bg-elevated: #434c5e;
+    --text: #eceff4; --text-dim: #9ea8be; --text-muted: #5e6a82;
+    --border: #4c566a; --border-light: #434c5e;
+  }
+  [data-theme="forest"] {
+    --bg: #0c120d; --bg-surface: #141e16; --bg-elevated: #1c2b1f;
+    --text: #d4e5d7; --text-dim: #6a8a6e; --text-muted: #3a5a3e;
+    --border: #2a422e; --border-light: #223628;
+  }
+  [data-theme="rose"] {
+    --bg: #1a0f14; --bg-surface: #241620; --bg-elevated: #30202a;
+    --text: #eddfe6; --text-dim: #9a7a8c; --text-muted: #5c3e50;
+    --border: #422e3a; --border-light: #382632;
+  }
+  [data-theme="solarized"] {
+    --bg: #fdf6e3; --bg-surface: #eee8d5; --bg-elevated: #e4dcc8;
+    --text: #3b4b54; --text-dim: #93a1a1; --text-muted: #bfcaca;
+    --border: #d6cdb5; --border-light: #e2dac4;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font-display);
+    background: var(--bg); color: var(--text);
+    height: 100dvh; overflow: hidden;
+    display: flex; flex-direction: column;
+    transition: background var(--transition), color var(--transition);
+  }
+
+  /* TOP BAR */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px; border-bottom: 1px solid var(--border-light);
+    flex-shrink: 0; z-index: 10;
+  }
+  .logo {
+    font-family: var(--font-mono); font-weight: 600; font-size: 0.82rem;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .logo span { color: var(--accent); }
+  .topbar-center {
+    display: flex; align-items: center;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 100px; padding: 3px;
+  }
+  .mode-btn {
+    padding: 6px 18px; border: none; background: transparent;
+    color: var(--text-dim); font-family: var(--font-display);
+    font-size: 0.78rem; font-weight: 500; border-radius: 100px;
+    cursor: pointer; transition: all var(--transition);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .mode-btn svg { width: 14px; height: 14px; }
+  .mode-btn:hover { color: var(--text); }
+  .mode-btn.active { background: var(--accent); color: #fff; }
+  .topbar-actions { display: flex; align-items: center; gap: 4px; }
+  .btn-icon {
+    width: 34px; height: 34px; border: none; background: transparent;
+    color: var(--text-dim); border-radius: 8px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition); flex-shrink: 0;
+  }
+  .btn-icon:hover { background: var(--bg-elevated); color: var(--text); }
+  .btn-icon svg { width: 17px; height: 17px; }
+
+  /* MAIN */
+  .main-area { flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* RSVP */
+  .reader-view {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; cursor: pointer; user-select: none;
+    transition: opacity 0.25s, visibility 0.25s;
+  }
+  .reader-view.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+  .focus-guides {
+    position: absolute; inset: 0; pointer-events: none;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .focus-guides.visible { opacity: 1; }
+  .guide-h { position: absolute; left: 10%; right: 10%; height: 1px; background: var(--text-muted); }
+  .guide-h.top { transform: translateY(-60px); }
+  .guide-h.bottom { transform: translateY(60px); }
+  .guide-v { position: absolute; width: 2px; height: 120px; background: var(--accent); opacity: 0.5; }
+  .guide-tick-top, .guide-tick-bottom {
+    position: absolute; width: 10px; height: 2px; background: var(--accent);
+    left: 50%; transform: translateX(-50%);
+  }
+  .guide-tick-top { top: calc(50% - 42px); }
+  .guide-tick-bottom { top: calc(50% + 42px); }
+  .word-display {
+    font-family: var(--font-display); font-size: var(--word-size);
+    font-weight: 400; letter-spacing: -0.01em; white-space: nowrap;
+    min-height: 1.3em; display: grid; grid-template-columns: 1fr auto 1fr;
+    align-items: center; position: relative; z-index: 2;
+    width: 100%; padding: 0 5%;
+  }
+  .word-display .word-pre { text-align: right; white-space: pre; }
+  .word-display .orp { color: var(--accent); font-weight: 600; text-align: center; }
+  .word-display .word-post { text-align: left; white-space: pre; }
+  .word-display.chunk { font-size: calc(var(--word-size) * 0.75); }
+  .word-display.fixed-font.chunk { font-size: var(--word-size); }
+
+  /* TEXT VIEW */
+  .text-view {
+    position: absolute; inset: 0; overflow-y: auto; padding: 40px 24px;
+    transition: opacity 0.25s, visibility 0.25s;
+  }
+  .text-view.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+  .text-content {
+    max-width: 680px; margin: 0 auto;
+    font-family: var(--font-display); font-size: 1.05rem; line-height: 1.85;
+  }
+  .text-content .para { margin-bottom: 1.2em; }
+  .text-content .w {
+    cursor: pointer; border-radius: 3px; padding: 1px 0;
+    transition: background 80ms, color 80ms;
+  }
+  .text-content .w:hover { background: var(--accent-glow); color: var(--accent); }
+  .text-content .w.read { color: var(--text-muted); }
+  .text-content .w.current {
+    background: var(--accent); color: #fff;
+    border-radius: 3px; padding: 1px 4px; margin: 0 -4px;
+  }
+  .text-view-hint {
+    max-width: 680px; margin: 0 auto 24px; padding: 12px 16px;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 10px; font-size: 0.82rem; color: var(--text-dim);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .text-view-hint svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--accent); }
+
+  .search-bar {
+    max-width: 680px; margin: 0 auto 16px; display: none;
+    align-items: center; gap: 8px;
+    padding: 8px 14px; background: var(--bg-elevated);
+    border: 1px solid var(--border); border-radius: 10px;
+  }
+  .search-bar.open { display: flex; }
+  .search-bar svg { width: 16px; height: 16px; color: var(--text-muted); flex-shrink: 0; }
+  .search-bar input {
+    flex: 1; background: transparent; border: none; outline: none;
+    font-family: var(--font-display); font-size: 0.88rem; color: var(--text);
+  }
+  .search-bar input::placeholder { color: var(--text-muted); }
+  .search-info {
+    font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .search-nav { display: flex; gap: 2px; }
+  .search-nav button {
+    width: 28px; height: 28px; border: none; background: transparent;
+    color: var(--text-dim); border-radius: 6px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition);
+  }
+  .search-nav button:hover { background: var(--bg-surface); color: var(--text); }
+  .search-nav button svg { width: 14px; height: 14px; }
+  .text-content .w.search-match {
+    background: rgba(255,200,0,0.25); border-radius: 2px;
+  }
+  .text-content .w.search-active {
+    background: rgba(255,200,0,0.6); color: var(--bg); border-radius: 2px;
+    padding: 1px 2px; margin: 0 -2px;
+  }
+
+  /* DROP ZONE */
+  .drop-zone {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 20px;
+    opacity: 0.7; transition: opacity var(--transition); z-index: 5;
+  }
+  .drop-zone.hidden { display: none; }
+  .drop-zone:hover { opacity: 1; }
+  .drop-ring {
+    width: 100px; height: 100px; border: 2px dashed var(--text-muted);
+    border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; transition: all 0.3s;
+  }
+  .drop-ring svg { width: 32px; height: 32px; color: var(--text-muted); }
+  .main-area.dragging .drop-ring {
+    border-color: var(--accent); background: var(--accent-glow); transform: scale(1.1);
+  }
+  .main-area.dragging .drop-ring svg { color: var(--accent); }
+  .drop-text { text-align: center; color: var(--text-dim); font-size: 0.9rem; line-height: 1.7; }
+  .drop-text strong { color: var(--text); font-weight: 500; }
+  .drop-text small { font-size: 0.78rem; color: var(--text-muted); }
+  .btn-open {
+    padding: 10px 28px; background: var(--bg-elevated);
+    border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font-display); font-size: 0.85rem; font-weight: 500;
+    border-radius: 100px; cursor: pointer; transition: all var(--transition);
+  }
+  .btn-open:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* CONTROLS */
+  .controls {
+    border-top: 1px solid var(--border-light); padding: 12px 24px;
+    flex-shrink: 0; display: flex; flex-direction: column; gap: 10px;
+  }
+  .progress-track {
+    width: 100%; height: 3px; background: var(--bg-elevated);
+    border-radius: 3px; overflow: hidden; cursor: pointer;
+  }
+  .progress-fill {
+    height: 100%; background: var(--accent); border-radius: 3px;
+    width: 0%; transition: width 0.15s linear;
+  }
+  .controls-row { display: flex; align-items: center; justify-content: space-between; }
+  .controls-left, .controls-right { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+  .controls-right { justify-content: flex-end; }
+  .controls-center { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .btn-play {
+    width: 42px; height: 42px; border-radius: 50%; border: none;
+    background: var(--accent); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition); box-shadow: 0 0 20px var(--accent-glow);
+  }
+  .btn-play:hover { transform: scale(1.08); box-shadow: 0 0 30px var(--accent-glow); }
+  .btn-play:disabled { opacity: 0.3; cursor: default; transform: none; }
+  .btn-play svg { width: 17px; height: 17px; }
+  .btn-skip {
+    width: 32px; height: 32px; border-radius: 50%; border: none;
+    background: transparent; color: var(--text-dim); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition);
+  }
+  .btn-skip:hover { color: var(--text); background: var(--bg-elevated); }
+  .btn-skip svg { width: 15px; height: 15px; }
+  .wpm-display { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 500; color: var(--text-dim); min-width: 75px; }
+  .wpm-display em { font-style: normal; color: var(--text); font-size: 1.05rem; }
+  .meta-info { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); display: flex; gap: 14px; }
+
+  /* SETTINGS */
+  .settings-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 100; display: none; align-items: center;
+    justify-content: center; backdrop-filter: blur(4px);
+  }
+  .settings-overlay.open { display: flex; }
+  .settings-panel {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 16px; width: 460px; max-width: 92vw;
+    max-height: 85dvh; overflow-y: auto;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.4);
+  }
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 24px; border-bottom: 1px solid var(--border-light);
+    position: sticky; top: 0; background: var(--bg-surface); z-index: 2;
+  }
+  .settings-header h2 { font-size: 1rem; font-weight: 600; }
+  .settings-body { padding: 6px 0; }
+  .setting-group { padding: 14px 24px; }
+  .setting-group + .setting-group { border-top: 1px solid var(--border-light); }
+  .setting-group label {
+    display: block; font-size: 0.75rem; font-weight: 500;
+    color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: 0.06em; margin-bottom: 10px;
+  }
+  .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .slider-group { flex: 1; display: flex; align-items: center; gap: 12px; }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; flex: 1; height: 4px;
+    background: var(--bg-elevated); border-radius: 4px; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; border: 2px solid var(--bg);
+    box-shadow: 0 0 8px var(--accent-glow);
+  }
+  .slider-val { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 500; color: var(--text); min-width: 48px; text-align: right; }
+  .chip-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    padding: 6px 15px; background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 100px; font-family: var(--font-display); font-size: 0.78rem;
+    color: var(--text-dim); cursor: pointer; transition: all var(--transition);
+  }
+  .chip:hover { color: var(--text); border-color: var(--text-muted); }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 3px 0; }
+  .toggle-label { font-size: 0.86rem; }
+  .toggle {
+    width: 40px; height: 22px; background: var(--bg-elevated);
+    border: 1px solid var(--border); border-radius: 22px;
+    cursor: pointer; position: relative; transition: all var(--transition); flex-shrink: 0;
+  }
+  .toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--text-dim); transition: all var(--transition);
+  }
+  .toggle.on { background: var(--accent); border-color: var(--accent); }
+  .toggle.on::after { left: 20px; background: #fff; }
+
+  /* Color dots for accent picker */
+  .color-dots { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .color-dot {
+    width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; transition: all var(--transition);
+    position: relative;
+  }
+  .color-dot:hover { transform: scale(1.15); }
+  .color-dot.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text-dim); }
+  .color-dot.custom-trigger {
+    background: conic-gradient(#e63946, #e6a439, #4ecdc4, #5b8def, #a855f7, #e63946);
+    position: relative; overflow: hidden;
+  }
+  .color-dot.custom-trigger input {
+    position: absolute; inset: -4px; width: 36px; height: 36px;
+    opacity: 0; cursor: pointer;
+  }
+
+  /* Theme grid */
+  .theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .theme-card {
+    border: 2px solid var(--border); border-radius: 10px;
+    padding: 10px 8px 8px; cursor: pointer;
+    transition: all var(--transition); text-align: center;
+    background: var(--bg-elevated);
+  }
+  .theme-card:hover { border-color: var(--text-muted); }
+  .theme-card.active { border-color: var(--accent); }
+  .theme-preview {
+    width: 100%; height: 24px; border-radius: 6px; margin-bottom: 6px;
+  }
+  .theme-card span { font-size: 0.7rem; color: var(--text-dim); font-weight: 500; }
+  .theme-card.active span { color: var(--accent); }
+
+  .shortcuts { padding: 14px 24px; border-top: 1px solid var(--border-light); }
+  .shortcuts h3 { font-size: 0.72rem; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .shortcut-list { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 20px; }
+  .shortcut-item { display: flex; align-items: center; justify-content: space-between; font-size: 0.76rem; color: var(--text-dim); }
+  .shortcut-item kbd {
+    font-family: var(--font-mono); font-size: 0.68rem; padding: 3px 8px;
+    border: 1px solid var(--text-muted); border-radius: 5px;
+    background: var(--bg-elevated); color: var(--text-dim);
+  }
+  #file-input { display: none; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  @media (max-width: 600px) {
+    :root { --word-size: 2.2rem; }
+    .topbar { padding: 10px 14px; }
+    .controls { padding: 10px 14px; }
+    .setting-group { padding: 12px 18px; }
+    .meta-info { gap: 8px; font-size: 0.63rem; }
+    .mode-btn { padding: 5px 12px; font-size: 0.72rem; }
+    .text-view { padding: 24px 16px; }
+    .theme-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body data-theme="dark">
+
+<header class="topbar">
+  <div class="logo"><span>&#9658;</span> Saccadeless</div>
+  <div class="topbar-center">
+    <button class="mode-btn active" id="mode-rsvp">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5,3 19,12 5,21"/></svg>
+      Reader
+    </button>
+    <button class="mode-btn" id="mode-text">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="15" y2="18"/></svg>
+      Text
+    </button>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn-icon" id="btn-new-file" title="Open file">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+    </button>
+    <button class="btn-icon" id="btn-search" title="Search text" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </button>
+    <button class="btn-icon" id="btn-settings" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="main-area" id="main-area">
+  <div class="drop-zone" id="drop-zone">
+    <div class="drop-ring">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </div>
+    <div class="drop-text">
+      <strong>Drop a file to start reading</strong><br>
+      .epub &middot; .txt &middot; .html &middot; .md<br>
+      <small>or paste text with Ctrl+V</small>
+    </div>
+    <button class="btn-open" id="btn-browse">Browse files</button>
+  </div>
+
+  <div class="reader-view hidden" id="reader-view">
+    <div class="focus-guides visible" id="focus-guides">
+      <div class="guide-h top"></div>
+      <div class="guide-h bottom"></div>
+      <div class="guide-v"></div>
+      <div class="guide-tick-top"></div>
+      <div class="guide-tick-bottom"></div>
+    </div>
+    <div class="word-display" id="word-display"></div>
+  </div>
+
+  <div class="text-view hidden" id="text-view">
+    <div class="search-bar" id="search-bar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="search-input" placeholder="Search text..." autocomplete="off" spellcheck="false">
+      <span class="search-info" id="search-info"></span>
+      <div class="search-nav">
+        <button id="search-prev" title="Previous match"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="18,15 12,9 6,15"/></svg></button>
+        <button id="search-next" title="Next match"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6,9 12,15 18,9"/></svg></button>
+      </div>
+      <button class="btn-icon" id="search-close" style="width:28px;height:28px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="text-view-hint" id="text-hint">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+      <span>Click any word to set your reading position, then hit <kbd style="font-family:var(--font-mono);font-size:0.72rem;padding:1px 5px;border:1px solid var(--border);border-radius:3px;background:var(--bg-surface)">Space</kbd> or switch to Reader.</span>
+    </div>
+    <div class="text-content" id="text-content"></div>
+  </div>
+</main>
+
+<footer class="controls">
+  <div class="progress-track" id="progress-track">
+    <div class="progress-fill" id="progress-fill"></div>
+  </div>
+  <div class="controls-row">
+    <div class="controls-left">
+      <div class="wpm-display"><em id="wpm-val">300</em> wpm</div>
+    </div>
+    <div class="controls-center">
+      <button class="btn-skip" id="btn-prev" title="Back 10 words">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="11,17 6,12 11,7"/><polyline points="18,17 13,12 18,7"/></svg>
+      </button>
+      <button class="btn-play" id="btn-play" disabled>
+        <svg id="icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,3 20,12 6,21"/></svg>
+        <svg id="icon-pause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="5" y="3" width="4" height="18" rx="1"/><rect x="15" y="3" width="4" height="18" rx="1"/></svg>
+      </button>
+      <button class="btn-skip" id="btn-next" title="Forward 10 words">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="13,17 18,12 13,7"/><polyline points="6,17 11,12 6,7"/></svg>
+      </button>
+    </div>
+    <div class="controls-right">
+      <div class="meta-info">
+        <span id="word-counter">&mdash;</span>
+        <span id="time-remaining">&mdash;</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- SETTINGS -->
+<div class="settings-overlay" id="settings-overlay">
+  <div class="settings-panel">
+    <div class="settings-header">
+      <h2>Settings</h2>
+      <button class="btn-icon" id="btn-close-settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="settings-body">
+
+      <!-- Speed -->
+      <div class="setting-group">
+        <label>Speed (WPM)</label>
+        <div class="setting-row"><div class="slider-group">
+          <input type="range" id="set-wpm" min="60" max="1200" step="10" value="300">
+          <span class="slider-val" id="set-wpm-val">300</span>
+        </div></div>
+        <div class="chip-group" style="margin-top:10px">
+          <span class="chip" data-wpm="150">150</span>
+          <span class="chip active" data-wpm="300">300</span>
+          <span class="chip" data-wpm="500">500</span>
+          <span class="chip" data-wpm="700">700</span>
+          <span class="chip" data-wpm="900">900</span>
+        </div>
+      </div>
+
+      <!-- Chunk -->
+      <div class="setting-group">
+        <label>Words per flash</label>
+        <div class="chip-group">
+          <span class="chip active" data-chunk="1">1 word</span>
+          <span class="chip" data-chunk="2">2 words</span>
+          <span class="chip" data-chunk="3">3 words</span>
+          <span class="chip" data-chunk="smart">Smart</span>
+        </div>
+        <div id="smart-opts" style="display:none;margin-top:12px">
+          <div class="setting-row"><div class="slider-group">
+            <span style="font-size:0.78rem;color:var(--text-dim);white-space:nowrap">Max width</span>
+            <input type="range" id="set-maxchars" min="8" max="30" step="1" value="16">
+            <span class="slider-val" id="set-maxchars-val">16 ch</span>
+          </div></div>
+          <div class="toggle-row" style="margin-top:10px"><span class="toggle-label">Don't split sentences</span><div class="toggle on" id="toggle-sentence-aware"></div></div>
+        </div>
+      </div>
+
+      <!-- Font size -->
+      <div class="setting-group">
+        <label>Font size</label>
+        <div class="setting-row"><div class="slider-group">
+          <input type="range" id="set-fontsize" min="1.6" max="6" step="0.2" value="3.4">
+          <span class="slider-val" id="set-fontsize-val">3.4rem</span>
+        </div></div>
+      </div>
+      <div class="setting-group"><div class="toggle-row"><span class="toggle-label">Fixed font size</span><div class="toggle" id="toggle-fixed-font"></div></div></div>
+
+      <!-- Theme -->
+      <div class="setting-group">
+        <label>Theme</label>
+        <div class="theme-grid" id="theme-grid">
+          <div class="theme-card active" data-theme="dark">
+            <div class="theme-preview" style="background:linear-gradient(135deg,#0a0a0b,#1c1c1f)"></div>
+            <span>Dark</span>
+          </div>
+          <div class="theme-card" data-theme="light">
+            <div class="theme-preview" style="background:linear-gradient(135deg,#f5f2ed,#ddd9d2)"></div>
+            <span>Light</span>
+          </div>
+          <div class="theme-card" data-theme="sepia">
+            <div class="theme-preview" style="background:linear-gradient(135deg,#f4ecd8,#ddd5bf)"></div>
+            <span>Sepia</span>
+          </div>
+          <div class="theme-card" data-theme="midnight">
+            <div class="theme-preview" style="background:linear-gradient(135deg,#0b0e1a,#1a2038)"></div>
+            <span>Midnight</span>
+          </div>
+          <div class="theme-card" data-theme="nord">
+            <div class="theme-preview" style="background:linear-gradient(135deg,#2e3440,#434c5e)"></div>
+            <span>Nord</span>
+          </div>
+          <div class="theme-card" data-theme="forest">
+            <div class="theme-preview" style="background:linear-gradient(135deg,#0c120d,#1c2b1f)"></div>
+            <span>Forest</span>
+          </div>
+          <div class="theme-card" data-theme="rose">
+            <div class="theme-preview" style="background:linear-gradient(135deg,#1a0f14,#30202a)"></div>
+            <span>Ros&eacute;</span>
+          </div>
+          <div class="theme-card" data-theme="solarized">
+            <div class="theme-preview" style="background:linear-gradient(135deg,#fdf6e3,#e4dcc8)"></div>
+            <span>Solarized</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Accent color -->
+      <div class="setting-group">
+        <label>Highlight color</label>
+        <div class="color-dots" id="color-dots">
+          <div class="color-dot active" data-color="#e63946" style="background:#e63946" title="Red"></div>
+          <div class="color-dot" data-color="#e6893a" style="background:#e6893a" title="Amber"></div>
+          <div class="color-dot" data-color="#22c55e" style="background:#22c55e" title="Green"></div>
+          <div class="color-dot" data-color="#4ecdc4" style="background:#4ecdc4" title="Teal"></div>
+          <div class="color-dot" data-color="#5b8def" style="background:#5b8def" title="Blue"></div>
+          <div class="color-dot" data-color="#a855f7" style="background:#a855f7" title="Purple"></div>
+          <div class="color-dot" data-color="#ec4899" style="background:#ec4899" title="Pink"></div>
+          <div class="color-dot" data-color="#f5f5f5" style="background:#f5f5f5" title="White"></div>
+          <div class="color-dot custom-trigger" title="Custom color">
+            <input type="color" id="custom-color" value="#e63946">
+          </div>
+        </div>
+      </div>
+
+      <!-- Toggles -->
+      <div class="setting-group"><div class="toggle-row"><span class="toggle-label">Highlight focal letter (ORP)</span><div class="toggle on" id="toggle-orp"></div></div></div>
+      <div class="setting-group"><div class="toggle-row"><span class="toggle-label">Pause on punctuation</span><div class="toggle on" id="toggle-pause-punct"></div></div></div>
+      <div class="setting-group"><div class="toggle-row"><span class="toggle-label">Pause on paragraphs</span><div class="toggle on" id="toggle-pause-para"></div></div></div>
+      <div class="setting-group"><div class="toggle-row"><span class="toggle-label">Focus crosshair</span><div class="toggle on" id="toggle-guides"></div></div></div>
+
+      <div class="shortcuts">
+        <h3>Keyboard shortcuts</h3>
+        <div class="shortcut-list">
+          <div class="shortcut-item"><span>Play / Pause</span><kbd>Space</kbd></div>
+          <div class="shortcut-item"><span>Speed up</span><kbd>&uarr;</kbd></div>
+          <div class="shortcut-item"><span>Slow down</span><kbd>&darr;</kbd></div>
+          <div class="shortcut-item"><span>Back 10</span><kbd>&larr;</kbd></div>
+          <div class="shortcut-item"><span>Forward 10</span><kbd>&rarr;</kbd></div>
+          <div class="shortcut-item"><span>Back 1</span><kbd>Ctrl &larr;</kbd></div>
+          <div class="shortcut-item"><span>Forward 1</span><kbd>Ctrl &rarr;</kbd></div>
+          <div class="shortcut-item"><span>Restart</span><kbd>R</kbd></div>
+          <div class="shortcut-item"><span>Open file</span><kbd>O</kbd></div>
+          <div class="shortcut-item"><span>Settings</span><kbd>,</kbd></div>
+          <div class="shortcut-item"><span>Toggle view</span><kbd>Tab</kbd></div>
+          <div class="shortcut-item"><span>Search text</span><kbd>Ctrl F</kbd></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-input" accept=".epub,.txt,.html,.htm,.md,.text">
+
+<script>
+(function(){
+  // ─── ACCENT COLOR UTILITY ───
+  function hexToRgb(hex){
+    const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+    return{r,g,b};
+  }
+  function applyAccent(hex){
+    const{r,g,b}=hexToRgb(hex);
+    const root=document.documentElement;
+    root.style.setProperty('--accent',hex);
+    root.style.setProperty('--accent-glow',`rgba(${r},${g},${b},0.15)`);
+    root.style.setProperty('--accent-dim',`rgba(${r},${g},${b},0.4)`);
+    S.accentColor=hex;
+  }
+
+  // ─── STATE ───
+  const S={
+    words:[], paragraphBreaks:new Set(), rawParagraphs:[],
+    index:0, playing:false, timer:null,
+    wpm:300, chunkSize:1, smartChunk:false, maxChars:16, sentenceAware:true, fontSize:3.4, fixedFont:false, theme:'dark',
+    accentColor:'#e63946',
+    orpEnabled:true, pauseOnPunct:true, pauseOnPara:true,
+    showGuides:true, mode:'rsvp', hasContent:false
+  };
+
+  const $=id=>document.getElementById(id);
+  const mainArea=$('main-area'), dropZone=$('drop-zone'),
+    readerView=$('reader-view'), textView=$('text-view'),
+    textContent=$('text-content'), wordDisplay=$('word-display'),
+    btnPlay=$('btn-play'), iconPlay=$('icon-play'), iconPause=$('icon-pause'),
+    progressFill=$('progress-fill'), progressTrack=$('progress-track'),
+    wpmVal=$('wpm-val'), wordCounter=$('word-counter'),
+    timeRemaining=$('time-remaining'), fileInput=$('file-input'),
+    settingsOv=$('settings-overlay'), focusGuides=$('focus-guides'),
+    modeRsvp=$('mode-rsvp'), modeText=$('mode-text');
+
+  // ─── ORP ───
+  function getORP(w){const l=w.length;if(l<=1)return 0;if(l<=5)return 1;if(l<=9)return 2;if(l<=13)return 3;return Math.floor(l*0.25);}
+  function esc(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):''}
+
+  function renderWord(text){
+    if(!text){wordDisplay.innerHTML='';return;}
+    if(!S.orpEnabled){
+      wordDisplay.classList.remove('chunk');
+      wordDisplay.innerHTML='<span class="word-pre"></span><span>'+esc(text)+'</span><span class="word-post"></span>';
+      return;
+    }
+    const ws=text.split(/\s+/);
+    if(ws.length>1){
+      wordDisplay.classList.add('chunk');
+      // ORP on center word: middle for 3, first for 2
+      const mi=Math.floor((ws.length-1)/2);
+      const mw=ws[mi], o=getORP(mw);
+      const pre=ws.slice(0,mi).map(esc).join(' ')+(mi>0?' ':'')+esc(mw.slice(0,o));
+      const orpChar=esc(mw[o]);
+      const post=esc(mw.slice(o+1))+(mi<ws.length-1?' ':'')+ws.slice(mi+1).map(esc).join(' ');
+      wordDisplay.innerHTML='<span class="word-pre">'+pre+'</span><span class="orp">'+orpChar+'</span><span class="word-post">'+post+'</span>';
+    }else{
+      wordDisplay.classList.remove('chunk');
+      const o=getORP(text);
+      wordDisplay.innerHTML='<span class="word-pre">'+esc(text.slice(0,o))+'</span><span class="orp">'+esc(text[o])+'</span><span class="word-post">'+esc(text.slice(o+1))+'</span>';
+    }
+  }
+
+  // ─── PLAYBACK ───
+  function getSmartChunk(idx){
+    if(!S.smartChunk) return S.chunkSize;
+    if(idx>=S.words.length) return 1;
+
+    let bestSize=1, bestImbalance=Infinity;
+
+    for(let size=1;size<=4;size++){
+      if(idx+size>S.words.length) break;
+      const chunk=S.words.slice(idx,idx+size);
+      const text=chunk.join(' ');
+      if(text.length>S.maxChars&&size>1) break;
+
+      // Sentence-aware: don't group words across sentence boundaries
+      if(S.sentenceAware&&size>1){
+        let crosses=false;
+        for(let i=0;i<chunk.length-1;i++){
+          if(/[.!?]["'\u201D\u2019)]*$/.test(chunk[i])){crosses=true;break;}
+        }
+        if(crosses) continue; // skip this size, try smaller
+      }
+
+      const mi=Math.floor((size-1)/2);
+      const mw=chunk[mi], o=getORP(mw);
+
+      let left=chunk.slice(0,mi).join(' ');
+      if(mi>0) left+=' ';
+      left+=mw.slice(0,o);
+
+      let right=mw.slice(o+1);
+      if(mi<size-1) right+=' '+chunk.slice(mi+1).join(' ');
+
+      const imbalance=Math.abs(left.length-right.length);
+
+      if(imbalance<bestImbalance||(imbalance===bestImbalance&&size>bestSize)){
+        bestImbalance=imbalance;
+        bestSize=size;
+      }
+    }
+    return bestSize;
+  }
+
+  function getDelay(idx,chunk){
+    const base=60000/S.wpm;let m=1;const w=S.words[idx]||'';
+    if(S.pauseOnPunct){if(/[.!?]$/.test(w))m=2.2;else if(/[;:,\u2014\u2013]$/.test(w))m=1.5;}
+    if(S.pauseOnPara&&S.paragraphBreaks.has(idx))m=Math.max(m,2.8);
+    if(w.length>10)m=Math.max(m,1.3);
+    return base*m*chunk;
+  }
+
+  function showCurrentWord(){
+    if(S.index>=S.words.length){stop();return;}
+    const chunk=getSmartChunk(S.index);
+    S._lastChunk=chunk;
+    const text=chunk>1?S.words.slice(S.index,S.index+chunk).join(' '):S.words[S.index];
+    renderWord(text); updateMeta();
+    if(S.mode==='text')syncTextHL();
+  }
+
+  function tick(){
+    showCurrentWord();
+    const chunk=S._lastChunk||1;
+    const d=getDelay(S.index,chunk);
+    S.index+=chunk;
+    if(S.index>=S.words.length){stop();return;}
+    S.timer=setTimeout(tick,d);
+  }
+
+  function play(){
+    if(!S.words.length)return;
+    if(S.index>=S.words.length)S.index=0;
+    if(S.mode==='text')setMode('rsvp');
+    S.playing=true; readerView.classList.add('active');
+    iconPlay.style.display='none';iconPause.style.display='block';
+    tick();
+  }
+  function pause(){S.playing=false;clearTimeout(S.timer);iconPlay.style.display='block';iconPause.style.display='none';}
+  function stop(){pause();readerView.classList.remove('active');}
+  function togglePlay(){if(!S.words.length)return;S.playing?pause():play();}
+
+  function updateMeta(){
+    const t=S.words.length,c=Math.min(S.index+1,t);
+    wordCounter.textContent=c+' / '+t;
+    const r=Math.max(0,t-S.index),m=r/S.wpm;
+    timeRemaining.textContent=m<1?Math.ceil(m*60)+'s left':Math.floor(m)+'m '+Math.ceil((m%1)*60)+'s left';
+    progressFill.style.width=(t>0?c/t*100:0)+'%';
+  }
+
+  // ─── TEXT VIEW ───
+  function buildTextView(){
+    let html='',wi=0;
+    S.rawParagraphs.forEach(para=>{
+      const pw=para.trim().split(/\s+/).filter(w=>w.length>0);
+      if(!pw.length)return;
+      html+='<div class="para">';
+      pw.forEach(w=>{html+='<span class="w" data-idx="'+wi+'">'+esc(w)+'</span> ';wi++;});
+      html+='</div>';
+    });
+    textContent.innerHTML=html;
+  }
+
+  let hlRAF=null;
+  function syncTextHL(){
+    if(hlRAF)return;
+    hlRAF=requestAnimationFrame(()=>{
+      hlRAF=null;
+      textContent.querySelectorAll('.w').forEach(el=>{
+        const idx=parseInt(el.dataset.idx);
+        el.classList.toggle('read',idx<S.index);
+        el.classList.toggle('current',idx===S.index);
+      });
+      const cur=textContent.querySelector('.w.current');
+      if(cur)cur.scrollIntoView({behavior:'smooth',block:'center'});
+    });
+  }
+
+  // ─── MODE ───
+  const btnSearch=$('btn-search');
+  function setMode(m){
+    S.mode=m;
+    modeRsvp.classList.toggle('active',m==='rsvp');
+    modeText.classList.toggle('active',m==='text');
+    readerView.classList.toggle('hidden',m!=='rsvp');
+    textView.classList.toggle('hidden',m!=='text');
+    btnSearch.style.display=m==='text'?'':'none';
+    if(m==='text'&&S.hasContent)syncTextHL();
+    if(m==='rsvp')closeSearch();
+  }
+  modeRsvp.addEventListener('click',()=>setMode('rsvp'));
+  modeText.addEventListener('click',()=>{if(S.playing)pause();setMode('text');});
+
+  // ─── FILE PARSING ───
+  async function parseEPUB(buf){
+    const zip=await JSZip.loadAsync(buf);
+    let rfp='';const cx=await zip.file('META-INF/container.xml')?.async('text');
+    if(cx){const m=cx.match(/full-path="([^"]+)"/);if(m)rfp=m[1];}
+    let cd=rfp?rfp.replace(/[^/]*$/,''):'';
+    const opf=await zip.file(rfp)?.async('text');
+    if(!opf)return fbEPUB(zip);
+    const p=new DOMParser(),doc=p.parseFromString(opf,'application/xml');
+    const mf={};doc.querySelectorAll('manifest item').forEach(i=>{mf[i.getAttribute('id')]=i.getAttribute('href');});
+    const sp=[];doc.querySelectorAll('spine itemref').forEach(r=>{const id=r.getAttribute('idref');if(mf[id])sp.push(mf[id]);});
+    let ft='';
+    for(const h of sp){const f=zip.file(cd+h);if(!f)continue;const ht=await f.async('text');const d=p.parseFromString(ht,'text/html');d.querySelectorAll('script,style').forEach(e=>e.remove());const t=d.body?d.body.innerText||d.body.textContent:'';if(t.trim())ft+=t.trim()+'\n\n';}
+    return ft;
+  }
+  async function fbEPUB(zip){
+    let ft='';const p=new DOMParser();
+    const es=Object.keys(zip.files).filter(f=>/\.(xhtml|html|htm)$/i.test(f)&&!f.includes('toc')).sort();
+    for(const n of es){const h=await zip.file(n).async('text');const d=p.parseFromString(h,'text/html');d.querySelectorAll('script,style').forEach(e=>e.remove());const t=d.body?d.body.innerText||d.body.textContent:'';if(t.trim())ft+=t.trim()+'\n\n';}
+    return ft;
+  }
+  function parseHTML(h){const p=new DOMParser(),d=p.parseFromString(h,'text/html');d.querySelectorAll('script,style,nav,header,footer').forEach(e=>e.remove());return d.body?d.body.innerText||d.body.textContent:'';}
+
+  function tokenize(text){
+    const rp=text.split(/\n\s*\n+/).filter(p=>p.trim());
+    const words=[],pb=new Set();
+    rp.forEach(para=>{const pw=para.trim().split(/\s+/).filter(w=>w.length>0);if(!pw.length)return;pb.add(words.length);words.push(...pw);});
+    return{words,paraBreaks:pb,rawParagraphs:rp};
+  }
+
+  async function loadFile(file){
+    stop();let text='';const ext=file.name.split('.').pop().toLowerCase();
+    if(ext==='epub')text=await parseEPUB(await file.arrayBuffer());
+    else if(ext==='html'||ext==='htm')text=parseHTML(await file.text());
+    else text=await file.text();
+    loadText(text);
+    if(ext==='epub')setMode('text');
+  }
+
+  function loadText(text){
+    const{words,paraBreaks,rawParagraphs}=tokenize(text);
+    S.words=words;S.paragraphBreaks=paraBreaks;S.rawParagraphs=rawParagraphs;
+    S.index=0;S.hasContent=words.length>0;
+    if(!S.hasContent)return;
+    dropZone.classList.add('hidden'); readerView.classList.remove('hidden');
+    btnPlay.disabled=false;
+    buildTextView(); showCurrentWord(); updateMeta();
+    if(S.mode==='text')syncTextHL();
+  }
+
+  // ─── PROGRESS ───
+  progressTrack.addEventListener('click',e=>{
+    if(!S.words.length)return;
+    const r=progressTrack.getBoundingClientRect();
+    S.index=Math.floor((e.clientX-r.left)/r.width*S.words.length);
+    showCurrentWord();if(S.mode==='text')syncTextHL();
+  });
+
+  // ─── DRAG & DROP ───
+  mainArea.addEventListener('dragover',e=>{e.preventDefault();mainArea.classList.add('dragging');});
+  mainArea.addEventListener('dragleave',()=>mainArea.classList.remove('dragging'));
+  mainArea.addEventListener('drop',async e=>{e.preventDefault();mainArea.classList.remove('dragging');const f=e.dataTransfer.files[0];if(f)await loadFile(f);});
+  readerView.addEventListener('click',()=>{if(S.words.length)togglePlay();});
+
+  // ─── PASTE ───
+  document.addEventListener('paste',e=>{
+    if(settingsOv.classList.contains('open'))return;
+    const t=e.clipboardData?.getData('text');
+    if(t&&t.trim().length>0){e.preventDefault();stop();loadText(t);}
+  });
+
+  // ─── FILE ───
+  $('btn-browse').addEventListener('click',()=>fileInput.click());
+  $('btn-new-file').addEventListener('click',()=>fileInput.click());
+  btnSearch.addEventListener('click',openSearch);
+  fileInput.addEventListener('change',async e=>{if(e.target.files[0])await loadFile(e.target.files[0]);e.target.value='';});
+
+  // ─── CONTROLS ───
+  btnPlay.addEventListener('click',e=>{e.stopPropagation();togglePlay();});
+  $('btn-prev').addEventListener('click',e=>{e.stopPropagation();S.index=Math.max(0,S.index-10);showCurrentWord();if(S.mode==='text')syncTextHL();});
+  $('btn-next').addEventListener('click',e=>{e.stopPropagation();S.index=Math.min(S.words.length-1,S.index+10);showCurrentWord();if(S.mode==='text')syncTextHL();});
+
+  // ─── SETTINGS ───
+  $('btn-settings').addEventListener('click',()=>{pause();settingsOv.classList.add('open');});
+  $('btn-close-settings').addEventListener('click',()=>settingsOv.classList.remove('open'));
+  settingsOv.addEventListener('click',e=>{if(e.target===settingsOv)settingsOv.classList.remove('open');});
+
+  // WPM
+  const setWpm=$('set-wpm'),setWpmVal=$('set-wpm-val');
+  function syncWPM(){setWpm.value=S.wpm;setWpmVal.textContent=S.wpm;wpmVal.textContent=S.wpm;document.querySelectorAll('[data-wpm]').forEach(c=>c.classList.toggle('active',parseInt(c.dataset.wpm)===S.wpm));updateMeta();}
+  setWpm.addEventListener('input',()=>{S.wpm=parseInt(setWpm.value);syncWPM();});
+  document.querySelectorAll('[data-wpm]').forEach(c=>c.addEventListener('click',()=>{S.wpm=parseInt(c.dataset.wpm);syncWPM();}));
+
+  // Chunk
+  const smartOpts=$('smart-opts');
+  document.querySelectorAll('[data-chunk]').forEach(c=>c.addEventListener('click',()=>{
+    document.querySelectorAll('[data-chunk]').forEach(x=>x.classList.remove('active'));
+    c.classList.add('active');
+    if(c.dataset.chunk==='smart'){
+      S.smartChunk=true; S.chunkSize=1;
+      smartOpts.style.display='';
+    }else{
+      S.smartChunk=false; S.chunkSize=parseInt(c.dataset.chunk);
+      smartOpts.style.display='none';
+    }
+  }));
+  const setMc=$('set-maxchars'),setMcVal=$('set-maxchars-val');
+  setMc.addEventListener('input',()=>{S.maxChars=parseInt(setMc.value);setMcVal.textContent=S.maxChars+' ch';});
+
+  // Font size
+  const setFs=$('set-fontsize'),setFsVal=$('set-fontsize-val');
+  setFs.addEventListener('input',()=>{S.fontSize=parseFloat(setFs.value);setFsVal.textContent=S.fontSize.toFixed(1)+'rem';document.documentElement.style.setProperty('--word-size',S.fontSize+'rem');});
+
+  // Theme
+  document.querySelectorAll('.theme-card').forEach(c=>c.addEventListener('click',()=>{
+    S.theme=c.dataset.theme;
+    document.body.dataset.theme=S.theme;
+    document.querySelectorAll('.theme-card').forEach(x=>x.classList.remove('active'));
+    c.classList.add('active');
+    // Reapply accent so glow values stay correct on new bg
+    applyAccent(S.accentColor);
+  }));
+
+  // Accent color dots
+  document.querySelectorAll('.color-dot[data-color]').forEach(dot=>{
+    dot.addEventListener('click',()=>{
+      applyAccent(dot.dataset.color);
+      document.querySelectorAll('.color-dot').forEach(d=>d.classList.remove('active'));
+      dot.classList.add('active');
+    });
+  });
+
+  // Custom color picker
+  const customColor=$('custom-color');
+  customColor.addEventListener('input',e=>{
+    applyAccent(e.target.value);
+    document.querySelectorAll('.color-dot').forEach(d=>d.classList.remove('active'));
+    customColor.closest('.color-dot').classList.add('active');
+  });
+
+  // Toggles
+  function setupToggle(id,get,set){const el=$(id);el.addEventListener('click',()=>{const v=!get();set(v);el.classList.toggle('on',v);});}
+  setupToggle('toggle-orp',()=>S.orpEnabled,v=>{S.orpEnabled=v;if(S.hasContent)showCurrentWord();});
+  setupToggle('toggle-pause-punct',()=>S.pauseOnPunct,v=>S.pauseOnPunct=v);
+  setupToggle('toggle-pause-para',()=>S.pauseOnPara,v=>S.pauseOnPara=v);
+  setupToggle('toggle-guides',()=>S.showGuides,v=>{S.showGuides=v;focusGuides.classList.toggle('visible',v);});
+  setupToggle('toggle-fixed-font',()=>S.fixedFont,v=>{S.fixedFont=v;wordDisplay.classList.toggle('fixed-font',v);});
+  setupToggle('toggle-sentence-aware',()=>S.sentenceAware,v=>S.sentenceAware=v);
+
+  // ─── SEARCH ───
+  const searchBar=$('search-bar'), searchInput=$('search-input'),
+    searchInfo=$('search-info'), searchPrevBtn=$('search-prev'),
+    searchNextBtn=$('search-next'), searchCloseBtn=$('search-close');
+  let searchMatches=[], searchIdx=-1;
+
+  function openSearch(){
+    if(S.mode!=='text'&&S.hasContent) setMode('text');
+    searchBar.classList.add('open');
+    searchInput.focus();
+    searchInput.select();
+  }
+  function closeSearch(){
+    searchBar.classList.remove('open');
+    searchInput.value='';
+    clearSearchHL();
+    searchMatches=[]; searchIdx=-1; searchInfo.textContent='';
+  }
+  function clearSearchHL(){
+    textContent.querySelectorAll('.search-match,.search-active').forEach(el=>{
+      el.classList.remove('search-match','search-active');
+    });
+  }
+  function doSearch(){
+    clearSearchHL();
+    const q=searchInput.value.trim().toLowerCase();
+    searchMatches=[]; searchIdx=-1;
+    if(!q){searchInfo.textContent='';return;}
+
+    const allW=[...textContent.querySelectorAll('.w')];
+    const qWords=q.split(/\s+/);
+    const windowSize=qWords.length;
+
+    for(let i=0;i<=allW.length-windowSize;i++){
+      const slice=allW.slice(i,i+windowSize);
+      const joined=slice.map(el=>el.textContent.toLowerCase()).join(' ');
+      if(joined.includes(q)){
+        slice.forEach(el=>el.classList.add('search-match'));
+        searchMatches.push(slice);
+        i+=windowSize-1; // skip past this match
+      }
+    }
+
+    if(searchMatches.length>0){
+      searchIdx=0;
+      activateMatch(0);
+      searchInfo.textContent='1 / '+searchMatches.length;
+    } else {
+      searchInfo.textContent='no results';
+    }
+  }
+  function activateMatch(i){
+    textContent.querySelectorAll('.search-active').forEach(el=>el.classList.remove('search-active'));
+    if(searchMatches[i]){
+      searchMatches[i].forEach(el=>el.classList.add('search-active'));
+      searchMatches[i][0].scrollIntoView({behavior:'smooth',block:'center'});
+    }
+  }
+  function searchNext(){
+    if(!searchMatches.length)return;
+    searchIdx=(searchIdx+1)%searchMatches.length;
+    activateMatch(searchIdx);
+    searchInfo.textContent=(searchIdx+1)+' / '+searchMatches.length;
+  }
+  function searchPrev(){
+    if(!searchMatches.length)return;
+    searchIdx=(searchIdx-1+searchMatches.length)%searchMatches.length;
+    activateMatch(searchIdx);
+    searchInfo.textContent=(searchIdx+1)+' / '+searchMatches.length;
+  }
+
+  searchInput.addEventListener('input',doSearch);
+  searchInput.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){e.shiftKey?searchPrev():searchNext();}
+    if(e.key==='Escape')closeSearch();
+  });
+  searchNextBtn.addEventListener('click',searchNext);
+  searchPrevBtn.addEventListener('click',searchPrev);
+  searchCloseBtn.addEventListener('click',closeSearch);
+
+  // Click a search match to set reading position
+  textContent?.addEventListener('click',e=>{
+    const wEl=e.target.closest('.w');
+    if(!wEl)return;
+    const idx=parseInt(wEl.dataset.idx);
+    if(isNaN(idx))return;
+    S.index=idx; pause(); showCurrentWord(); syncTextHL();
+  });
+
+  // ─── KEYBOARD ───
+  document.addEventListener('keydown',e=>{
+    // Search focus: let it handle its own keys
+    if(document.activeElement===searchInput) return;
+    if(settingsOv.classList.contains('open')){if(e.key==='Escape')settingsOv.classList.remove('open');return;}
+    // Ctrl+F / Cmd+F to open search
+    if((e.ctrlKey||e.metaKey)&&e.key==='f'){
+      e.preventDefault();
+      openSearch();
+      return;
+    }
+    if(e.key==='Escape'&&searchBar.classList.contains('open')){closeSearch();return;}
+    switch(e.key){
+      case' ':e.preventDefault();togglePlay();break;
+      case'ArrowUp':e.preventDefault();S.wpm=Math.min(1200,S.wpm+25);syncWPM();break;
+      case'ArrowDown':e.preventDefault();S.wpm=Math.max(60,S.wpm-25);syncWPM();break;
+      case'ArrowLeft':e.preventDefault();S.index=Math.max(0,S.index-(e.ctrlKey||e.metaKey?1:10));showCurrentWord();if(S.mode==='text')syncTextHL();break;
+      case'ArrowRight':e.preventDefault();S.index=Math.min(S.words.length-1,S.index+(e.ctrlKey||e.metaKey?1:10));showCurrentWord();if(S.mode==='text')syncTextHL();break;
+      case'r':case'R':S.index=0;if(!S.playing)showCurrentWord();if(S.mode==='text')syncTextHL();break;
+      case'o':case'O':fileInput.click();break;
+      case',':pause();settingsOv.classList.add('open');break;
+      case'Tab':e.preventDefault();if(S.hasContent){if(S.playing)pause();setMode(S.mode==='rsvp'?'text':'rsvp');}break;
+    }
+  });
+
+  // ─── INIT ───
+  // Init
+
+  loadText(`The technique of Rapid Serial Visual Presentation was first studied by Mary Potter at MIT. Instead of reading words side by side on a page, RSVP displays each word in the same position, one after another, at a controlled speed. This eliminates the need for your eyes to move across lines of text, which is one of the biggest bottlenecks in reading speed.
+
+Your brain processes visual information incredibly fast. When you see a familiar logo, you recognize it in milliseconds without having to read each letter. RSVP trains your brain to treat words the same way \u2014 as visual patterns rather than sequences of letters to be sounded out.
+
+The key is the Optimal Recognition Point, or ORP \u2014 a specific letter in each word that your eye naturally fixates on. By highlighting this letter and keeping it in a fixed position, your eyes never have to wander. The result? You can comfortably read at two to three times your normal speed with practice.
+
+To get started, try reading at a comfortable pace first, around 250 to 300 words per minute. As your brain adapts, gradually increase the speed. Many people find they can reach 500 words per minute within just a few sessions, and some can push beyond 700 or even 900 words per minute.
+
+Drop a file to start reading your own content. Saccadeless supports EPUB books, plain text files, HTML documents, and Markdown. You can also paste any text directly from your clipboard.
+
+Try switching to Text mode using the toggle above, or press Tab. Click any word to jump there, then hit Space to start RSVP from that point. Words you've already passed will appear dimmed so you always know where you left off.`);
+})();
+</script>
+</body>
+</html>

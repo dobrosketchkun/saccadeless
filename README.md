@@ -81,7 +81,7 @@ EPUB parsing follows the OPF spine order and strips scripts/styles from content 
 JSZip is loaded from `cdnjs.cloudflare.com` by default. To use it locally:
  
 1. Download jszip.min.js from https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
-2. Place it next to `pacelit.html`
+2. Place it next to `index.html`
 3. Change the script tag at the top from:
    ```html
    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
